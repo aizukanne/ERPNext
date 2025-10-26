@@ -1,5 +1,5 @@
 # Docker Compose for ERPNext with Modular App Selection
-# Based on the Nomad deployment configuration
+# Includes automatic Let's Encrypt SSL certificate management
 version: '3.8'
 
 services:
@@ -298,6 +298,49 @@ services:
       - erpnext-network
     restart: unless-stopped
 
+  # Certbot - Let's Encrypt SSL Certificate Management
+  certbot:
+    image: certbot/certbot:latest
+    container_name: erpnext-certbot
+    volumes:
+      - certbot-data:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done;'"
+    networks:
+      - erpnext-network
+    restart: unless-stopped
+    profiles:
+      - production  # Only run in production mode
+
+  # Certbot Init - Initial certificate acquisition
+  certbot-init:
+    image: certbot/certbot:latest
+    container_name: erpnext-certbot-init
+    volumes:
+      - certbot-data:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    command: >
+      sh -c "
+      if [ '${USE_LETSENCRYPT}' = 'true' ] && [ ! -d '/etc/letsencrypt/live/${DOMAIN_NAME}' ]; then
+        echo 'Obtaining Let''s Encrypt certificate for ${DOMAIN_NAME}...';
+        certbot certonly --webroot \
+          -w /var/www/certbot \
+          --email ${LETSENCRYPT_EMAIL} \
+          --agree-tos \
+          --no-eff-email \
+          --force-renewal \
+          -d ${DOMAIN_NAME} ${ADDITIONAL_DOMAINS};
+        echo 'Certificate obtained successfully!';
+      else
+        echo 'Skipping certificate acquisition (USE_LETSENCRYPT=${USE_LETSENCRYPT})';
+      fi
+      "
+    networks:
+      - erpnext-network
+    restart: "no"
+    profiles:
+      - production  # Only run in production mode
+
   # Frontend - Nginx reverse proxy with HTTPS
   frontend:
     image: ${ERPNEXT_IMAGE:-frappe/erpnext:v15.75.1}
@@ -306,17 +349,26 @@ services:
       bash -c "
       set -e
       
-      # Setup SSL certificate
-      mkdir -p /etc/nginx/ssl
-      if [ ! -f /etc/nginx/ssl/cert.pem ]; then
-        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-          -keyout /etc/nginx/ssl/key.pem \
-          -out /etc/nginx/ssl/cert.pem \
-          -subj '/C=US/ST=State/L=City/O=Organization/CN=${DOMAIN_NAME:-localhost}'
+      # Determine SSL certificate paths
+      if [ '${USE_LETSENCRYPT}' = 'true' ] && [ -d '/etc/letsencrypt/live/${DOMAIN_NAME}' ]; then
+        echo 'Using Let''s Encrypt certificates'
+        SSL_CERT='/etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem'
+        SSL_KEY='/etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem'
+      else
+        echo 'Using self-signed certificates'
+        mkdir -p /etc/nginx/ssl
+        if [ ! -f /etc/nginx/ssl/cert.pem ]; then
+          openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout /etc/nginx/ssl/key.pem \
+            -out /etc/nginx/ssl/cert.pem \
+            -subj '/C=US/ST=State/L=City/O=Organization/CN=${DOMAIN_NAME:-localhost}'
+        fi
+        SSL_CERT='/etc/nginx/ssl/cert.pem'
+        SSL_KEY='/etc/nginx/ssl/key.pem'
       fi
       
       # Create nginx configuration
-      cat > /etc/nginx/conf.d/erpnext.conf <<'NGINX'
+      cat > /etc/nginx/conf.d/erpnext.conf <<NGINX_CONF
       upstream backend {
           server backend:8000;
       }
@@ -325,70 +377,91 @@ services:
           server websocket:9000;
       }
       
-      # HTTP -> HTTPS redirect
+      # HTTP Server - Handles ACME challenge and redirects to HTTPS
       server {
           listen 80;
-          server_name _;
-          return 301 https://\$$host\$$request_uri;
+          server_name ${DOMAIN_NAME} _;
+      
+          # ACME Challenge for Let's Encrypt
+          location /.well-known/acme-challenge/ {
+              root /var/www/certbot;
+          }
+      
+          # Redirect all other HTTP traffic to HTTPS
+          location / {
+              return 301 https://\\\$host\\\$request_uri;
+          }
       }
       
       # HTTPS Server
       server {
           listen 443 ssl http2;
-          server_name _;
+          server_name ${DOMAIN_NAME} _;
       
-          ssl_certificate     /etc/nginx/ssl/cert.pem;
-          ssl_certificate_key /etc/nginx/ssl/key.pem;
+          ssl_certificate     \${SSL_CERT};
+          ssl_certificate_key \${SSL_KEY};
           ssl_protocols       TLSv1.2 TLSv1.3;
           ssl_ciphers         HIGH:!aNULL:!MD5;
+          ssl_prefer_server_ciphers on;
+          ssl_session_cache   shared:SSL:10m;
+          ssl_session_timeout 10m;
       
           client_max_body_size 50m;
           root /home/frappe/frappe-bench/sites;
       
+          # ACME Challenge (for certificate renewal)
+          location /.well-known/acme-challenge/ {
+              root /var/www/certbot;
+          }
+      
           location /assets {
-              try_files \$$uri =404;
+              try_files \\\$uri =404;
           }
       
           location ~ ^/protected/(.*) {
               internal;
-              try_files /${SITE_NAME}/\$$1 =404;
+              try_files /${SITE_NAME}/\\\$1 =404;
           }
       
           location /socket.io {
               proxy_http_version 1.1;
-              proxy_set_header Upgrade \$$http_upgrade;
+              proxy_set_header Upgrade \\\$http_upgrade;
               proxy_set_header Connection \"upgrade\";
               proxy_set_header X-Frappe-Site-Name ${SITE_NAME};
-              proxy_set_header Origin \$$scheme://\$$http_host;
-              proxy_set_header Host \$$host;
+              proxy_set_header Origin \\\$scheme://\\\$http_host;
+              proxy_set_header Host \\\$host;
+              proxy_set_header X-Real-IP \\\$remote_addr;
+              proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto \\\$scheme;
               proxy_pass http://socketio;
           }
       
           location / {
-              rewrite ^(.+)/\$$ \$$1 permanent;
-              rewrite ^(.+)/index\\.html\$$ \$$1 permanent;
-              rewrite ^(.+)\\.html\$$ \$$1 permanent;
+              rewrite ^(.+)/\\\$ \\\$1 permanent;
+              rewrite ^(.+)/index\\.html\\\$ \\\$1 permanent;
+              rewrite ^(.+)\\.html\\\$ \\\$1 permanent;
       
               location ~ ^/files/.*.(htm|html|svg|xml) {
                   add_header Content-disposition \"attachment\";
-                  try_files /${SITE_NAME}/\$$uri @backend;
+                  try_files /${SITE_NAME}/\\\$uri @backend;
               }
       
-              try_files /${SITE_NAME}/\$$uri @backend;
+              try_files /${SITE_NAME}/\\\$uri @backend;
           }
       
           location @backend {
-              proxy_set_header X-Forwarded-For \$$remote_addr;
-              proxy_set_header X-Forwarded-Proto \$$scheme;
+              proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto \\\$scheme;
               proxy_set_header X-Frappe-Site-Name ${SITE_NAME};
-              proxy_set_header Host \$$host;
+              proxy_set_header Host \\\$host;
+              proxy_set_header X-Real-IP \\\$remote_addr;
               proxy_set_header X-Use-X-Accel-Redirect True;
               proxy_read_timeout 120;
               proxy_redirect off;
               proxy_pass http://backend;
           }
       }
-      NGINX
+      NGINX_CONF
       
       # Start nginx
       nginx -g 'daemon off;'
@@ -401,12 +474,15 @@ services:
     environment:
       SITE_NAME: ${SITE_NAME}
       DOMAIN_NAME: ${DOMAIN_NAME:-localhost}
+      USE_LETSENCRYPT: ${USE_LETSENCRYPT:-false}
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
     volumes:
       - sites-data:/home/frappe/frappe-bench/sites
       - ssl-certs:/etc/nginx/ssl
+      - certbot-data:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
     networks:
       - erpnext-network
     restart: unless-stopped
@@ -423,3 +499,5 @@ volumes:
   sites-data:
   logs-data:
   ssl-certs:
+  certbot-data:
+  certbot-www:

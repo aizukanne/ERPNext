@@ -11,8 +11,14 @@ nano .env
 
 **Edit these REQUIRED values:**
 ```bash
+# Security (always change these!)
 ADMIN_PASSWORD=YourSecurePassword123!
 DB_ROOT_PASSWORD=YourDatabasePassword123!
+
+# For production with Let's Encrypt SSL:
+DOMAIN_NAME=erp.yourcompany.com  # Your actual domain
+USE_LETSENCRYPT=true
+LETSENCRYPT_EMAIL=admin@yourcompany.com
 ```
 
 ### 2. Select Apps (Optional)
@@ -31,16 +37,26 @@ INSTALL_CRM=true
 
 ### 3. Deploy
 
+**Development (localhost with self-signed SSL):**
 ```bash
 docker-compose up -d
 ```
 
+**Production (real domain with Let's Encrypt SSL):**
+```bash
+# Ensure DNS points to your server IP first!
+docker-compose --profile production up -d
+```
+
+📖 **Full Let's Encrypt guide**: [LETSENCRYPT_GUIDE.md](LETSENCRYPT_GUIDE.md)
+
 ### 4. Wait & Access
 
 **Wait 2-5 minutes for initial setup**, then access:
-- URL: https://localhost
-- Username: Administrator  
-- Password: (what you set in `ADMIN_PASSWORD`)
+- **Development**: https://localhost (browser warning expected)
+- **Production**: https://erp.yourcompany.com (valid SSL cert)
+- **Username**: Administrator
+- **Password**: (what you set in `ADMIN_PASSWORD`)
 
 ---
 

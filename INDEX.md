@@ -219,14 +219,16 @@ Access at: `https://<frontend-container-ip>`
 ## 🆕 New: Docker Compose Files
 
 - **[README.docker-compose.md](README.docker-compose.md)** - Overview of Docker Compose setup
-- **[docker-compose.yml](docker-compose.yml)** - Main deployment file
-- **[.env.example](.env.example)** - Configuration template
+- **[docker-compose.yml](docker-compose.yml)** - Main deployment file with Let's Encrypt support
+- **[.env.example](.env.example)** - Configuration template with SSL options
 - **[DOCKER_COMPOSE_GUIDE.md](DOCKER_COMPOSE_GUIDE.md)** - Complete guide
 - **[DOCKER_COMPOSE_QUICKSTART.md](DOCKER_COMPOSE_QUICKSTART.md)** - 5-minute setup
+- **[LETSENCRYPT_GUIDE.md](LETSENCRYPT_GUIDE.md)** - Automatic SSL certificate setup
+- **[CLOUD_DEPLOYMENT.md](CLOUD_DEPLOYMENT.md)** - AWS & GCP deployment guide
 
 ---
 
-**Total Files:** 19 (5 new Docker Compose files)
+**Total Files:** 21 (7 new Docker Compose files including cloud deployment guide)
 **Key Files:**
   - Nomad: 6 (ANSWERS, ARCHITECTURE, DEPLOYMENT, Dockerfile, nomad job, QUICK_REF)
   - Docker Compose: 5 (README.docker-compose, docker-compose.yml, .env.example, guides)

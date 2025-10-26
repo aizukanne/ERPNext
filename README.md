@@ -58,7 +58,9 @@ docker-compose up -d
 # Password: (what you set in .env)
 ```
 
-📖 **Full Guide:** [Docker Compose Documentation](DOCKER_COMPOSE_QUICKSTART.md)
+📖 **Guides:**
+- [Quick Start](DOCKER_COMPOSE_QUICKSTART.md) - 5-minute setup
+- [Cloud Deployment](CLOUD_DEPLOYMENT.md) - AWS & GCP guide
 
 ### Option 2: Nomad (Advanced)
 
@@ -86,6 +88,8 @@ nomad job run erpnext-production.nomad
 ### 🐳 Docker Compose Deployment
 - **[Quick Start (5 min)](DOCKER_COMPOSE_QUICKSTART.md)** - Get running fast
 - **[Complete Guide](DOCKER_COMPOSE_GUIDE.md)** - Full documentation
+- **[Cloud Deployment](CLOUD_DEPLOYMENT.md)** - AWS & GCP deployment
+- **[Let's Encrypt SSL](LETSENCRYPT_GUIDE.md)** - Automatic SSL certificates
 - **[Overview](README.docker-compose.md)** - Features and architecture
 
 ### 🎪 Nomad Deployment
