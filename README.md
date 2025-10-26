@@ -170,38 +170,41 @@ INSTALL_LENDING=true
 
 ## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────┐
-│           Nginx Frontend                │
-│         (HTTPS Port 443)                │
-└──────────────┬──────────────────────────┘
-               │
-       ┌───────┴────────┐
-       │                │
-┌──────▼──────┐  ┌─────▼────────┐
-│   Backend   │  │  WebSocket   │
-│ (Gunicorn)  │  │ (Socket.IO)  │
-└──────┬──────┘  └──────┬───────┘
-       │                │
-       └────────┬───────┘
-                │
-    ┌───────────┴────────────┐
-    │                        │
-┌───▼────┐  ┌────▼─────┐  ┌─▼─────┐
-│ Redis  │  │  Redis   │  │ Redis │
-│ Cache  │  │  Queue   │  │Socket │
-└────────┘  └──────────┘  └───────┘
-                │
-         ┌──────┴──────┐
-         │             │
-    ┌────▼───┐   ┌────▼────┐
-    │Workers │   │Scheduler│
-    └────┬───┘   └─────────┘
-         │
-    ┌────▼─────┐
-    │ MariaDB  │
-    │(Database)│
-    └──────────┘
+```mermaid
+graph TB
+    Client[👤 Client Browser]
+    Nginx[🌐 Nginx Frontend<br/>HTTPS Port 443]
+    Backend[⚙️ Backend<br/>Gunicorn]
+    WebSocket[🔌 WebSocket<br/>Socket.IO]
+    RedisCache[(💾 Redis Cache)]
+    RedisQueue[(📋 Redis Queue)]
+    RedisSocket[(🔌 Redis SocketIO)]
+    Workers[👷 Workers<br/>Background Jobs]
+    Scheduler[⏰ Scheduler<br/>Cron Jobs]
+    MariaDB[(🗄️ MariaDB<br/>Database)]
+
+    Client -->|HTTPS| Nginx
+    Nginx --> Backend
+    Nginx --> WebSocket
+    Backend --> RedisCache
+    Backend --> RedisQueue
+    Backend --> RedisSocket
+    Backend --> MariaDB
+    WebSocket --> RedisSocket
+    RedisQueue --> Workers
+    RedisQueue --> Scheduler
+    Workers --> MariaDB
+    Scheduler --> MariaDB
+
+    style Nginx fill:#e1f5ff
+    style Backend fill:#fff3e0
+    style WebSocket fill:#fff3e0
+    style RedisCache fill:#fce4ec
+    style RedisQueue fill:#fce4ec
+    style RedisSocket fill:#fce4ec
+    style Workers fill:#f3e5f5
+    style Scheduler fill:#f3e5f5
+    style MariaDB fill:#e8f5e9
 ```
 
 ## 💻 System Requirements

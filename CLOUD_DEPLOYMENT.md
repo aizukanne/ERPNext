@@ -254,7 +254,7 @@ sudo usermod -aG docker ubuntu
 newgrp docker
 
 # 5. Clone repository
-git clone <your-repo-url>
+git clone https://github.com/aizukanne/ERPNext
 cd ERPNext
 
 # 6. Configure environment
@@ -478,7 +478,7 @@ sudo usermod -aG docker $USER
 newgrp docker
 
 # 5. Clone repository
-git clone <your-repo-url>
+git clone https://github.com/aizukanne/ERPNext
 cd ERPNext
 
 # 6. Configure environment
