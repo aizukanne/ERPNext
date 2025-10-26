@@ -42,7 +42,7 @@ Choose your deployment method:
 
 ```bash
 # 1. Clone this repository
-git clone <your-repo-url>
+git clone https://github.com/aizukanne/ERPNext
 cd ERPNext
 
 # 2. Configure
