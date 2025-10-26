@@ -10,31 +10,47 @@ WORKDIR /home/frappe/frappe-bench
 # Using specific versions for stability
 
 # HRMS - Human Resources Management
-RUN bench get-app --branch version-15 hrms https://github.com/frappe/hrms
+RUN bench get-app --branch version-15 --skip-assets hrms https://github.com/frappe/hrms
 
 # CRM - Customer Relationship Management  
-RUN bench get-app --branch version-15 crm https://github.com/frappe/crm
+RUN bench get-app --branch main --skip-assets crm https://github.com/frappe/crm
 
 # Helpdesk - Support ticket system
-RUN bench get-app --branch main helpdesk https://github.com/frappe/helpdesk
+RUN bench get-app --branch main --skip-assets helpdesk https://github.com/frappe/helpdesk
 
 # Insights - Business Intelligence & Analytics
-RUN bench get-app --branch main insights https://github.com/frappe/insights
+RUN bench get-app --branch main --skip-assets insights https://github.com/frappe/insights
 
 # Gameplan - Project Management
-RUN bench get-app --branch main gameplan https://github.com/frappe/gameplan
+RUN bench get-app --branch main --skip-assets gameplan https://github.com/frappe/gameplan
 
 # LMS - Learning Management System
-RUN bench get-app --branch main lms https://github.com/frappe/lms
+RUN bench get-app --branch main --skip-assets lms https://github.com/frappe/lms
 
 # Healthcare - Medical Practice Management
-RUN bench get-app --branch version-15 healthcare https://github.com/frappe/healthcare
+RUN bench get-app --branch version-15 --skip-assets healthcare https://github.com/frappe/healthcare
 
 # Lending - Loan Management
-RUN bench get-app --branch version-15 lending https://github.com/frappe/lending
+RUN bench get-app --branch version-15 --skip-assets lending https://github.com/frappe/lending
 
-# Build assets for all apps (this takes time!)
-RUN bench build --apps frappe,erpnext,hrms,crm,helpdesk,insights,gameplan,lms,healthcare,lending
+# Create dummy config file for HRMS build (it needs socketio_port from this file)
+RUN mkdir -p sites && echo '{"socketio_port": 9000}' > sites/common_site_config.json
+
+# Build assets in stages to reduce memory usage
+# Stage 1: Core apps (frappe + erpnext)
+RUN bench build --apps frappe,erpnext
+
+# Stage 2: HR & Business apps
+RUN bench build --apps hrms,crm,helpdesk
+
+# Stage 3: Analytics & Project Management
+RUN bench build --apps insights,gameplan
+
+# Stage 4: Education & Domain-specific
+RUN bench build --apps lms,healthcare,lending
+
+# Remove dummy config file (will be created properly at runtime)
+RUN rm -f sites/common_site_config.json
 
 # Set proper permissions
 USER root

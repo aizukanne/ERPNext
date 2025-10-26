@@ -10,7 +10,34 @@
 
 ## 🚀 For Deployment
 
-### Step 1: Understand Architecture
+### Choose Your Deployment Method
+
+#### Option 1: Docker Compose (Simpler - Single Server)
+**NEW!** [Docker Compose Setup](README.docker-compose.md)
+- **Quick Start:** [DOCKER_COMPOSE_QUICKSTART.md](DOCKER_COMPOSE_QUICKSTART.md) - 5 minute setup
+- **Full Guide:** [DOCKER_COMPOSE_GUIDE.md](DOCKER_COMPOSE_GUIDE.md) - Complete documentation
+- **Files:** [docker-compose.yml](docker-compose.yml), [.env.example](.env.example)
+- **Best for:** Single server deployments, development, small-medium businesses
+- **Features:**
+  - ✅ Select which apps to install
+  - ✅ Automated setup
+  - ✅ HTTPS with self-signed certs
+  - ✅ Production-ready
+
+#### Option 2: Nomad (Advanced - Multi-Server)
+[erpnext-production.nomad](erpnext-production.nomad)
+- **Best for:** Cluster deployments, enterprise, high availability
+- **Features:**
+  - ✅ Multi-node deployment
+  - ✅ Auto-scaling
+  - ✅ Load balancing
+  - ✅ Consul service discovery
+
+---
+
+### Nomad Deployment Steps
+
+#### Step 1: Understand Architecture
 [ARCHITECTURE_EXPLAINED.md](computer:///mnt/user-data/outputs/ARCHITECTURE_EXPLAINED.md)
 - Why 12 containers (not over-engineering!)
 - Microservices vs monolith
@@ -23,15 +50,15 @@
 - Build instructions in DEPLOYMENT.md
 - Takes ~20 minutes to build
 
-### Step 3: Deploy
-[erpnext-production.nomad](computer:///mnt/user-data/outputs/erpnext-production.nomad)
+#### Step 3: Deploy
+[erpnext-production.nomad](erpnext-production.nomad)
 - Main deployment file
 - Uses Docker volumes (auto-created!)
 - HTTPS on port 443
 - All 10 apps included
 
-### Step 4: Follow Guide
-[DEPLOYMENT.md](computer:///mnt/user-data/outputs/DEPLOYMENT.md)
+#### Step 4: Follow Guide
+[DEPLOYMENT.md](DEPLOYMENT.md)
 - Complete step-by-step guide
 - Build image instructions
 - Deployment process
@@ -74,7 +101,13 @@ These are from previous iterations - you can ignore them:
 
 ## 🎓 Learning Path
 
-**For Quick Deployment:**
+**For Quick Docker Compose Deployment:**
+1. [DOCKER_COMPOSE_QUICKSTART.md](DOCKER_COMPOSE_QUICKSTART.md)
+2. [.env.example](.env.example) → configure
+3. `docker-compose up -d` → deploy
+4. Access at https://localhost
+
+**For Quick Nomad Deployment:**
 1. ANSWERS.md
 2. Dockerfile → build image
 3. erpnext-production.nomad → update & deploy
@@ -178,11 +211,28 @@ Access at: `https://<frontend-container-ip>`
 **Quick answers?**
 → ANSWERS.md
 
+**Docker Compose deployment?**
+→ DOCKER_COMPOSE_QUICKSTART.md or DOCKER_COMPOSE_GUIDE.md
+
 ---
 
-**Total Files:** 14
-**Key Files:** 6 (ANSWERS, ARCHITECTURE, DEPLOYMENT, Dockerfile, nomad job, QUICK_REF)
-**Deployment Time:** ~30 minutes
-**Containers:** 12
-**Apps:** 10
+## 🆕 New: Docker Compose Files
+
+- **[README.docker-compose.md](README.docker-compose.md)** - Overview of Docker Compose setup
+- **[docker-compose.yml](docker-compose.yml)** - Main deployment file
+- **[.env.example](.env.example)** - Configuration template
+- **[DOCKER_COMPOSE_GUIDE.md](DOCKER_COMPOSE_GUIDE.md)** - Complete guide
+- **[DOCKER_COMPOSE_QUICKSTART.md](DOCKER_COMPOSE_QUICKSTART.md)** - 5-minute setup
+
+---
+
+**Total Files:** 19 (5 new Docker Compose files)
+**Key Files:**
+  - Nomad: 6 (ANSWERS, ARCHITECTURE, DEPLOYMENT, Dockerfile, nomad job, QUICK_REF)
+  - Docker Compose: 5 (README.docker-compose, docker-compose.yml, .env.example, guides)
+**Deployment Time:**
+  - Docker Compose: ~5 minutes
+  - Nomad: ~30 minutes
+**Containers:** 12 (both methods)
+**Apps:** Up to 10 (select which ones to install)
 **Access:** HTTPS port 443

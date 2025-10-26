@@ -1,0 +1,425 @@
+# Docker Compose for ERPNext with Modular App Selection
+# Based on the Nomad deployment configuration
+version: '3.8'
+
+services:
+  # Database - MariaDB
+  mariadb:
+    image: mariadb:10.6
+    container_name: erpnext-mariadb
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    networks:
+      - erpnext-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--password=${DB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis Cache
+  redis-cache:
+    image: redis:6.2-alpine
+    container_name: erpnext-redis-cache
+    volumes:
+      - redis-cache-data:/data
+    networks:
+      - erpnext-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 2s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis Queue
+  redis-queue:
+    image: redis:6.2-alpine
+    container_name: erpnext-redis-queue
+    volumes:
+      - redis-queue-data:/data
+    networks:
+      - erpnext-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 2s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis SocketIO
+  redis-socketio:
+    image: redis:6.2-alpine
+    container_name: erpnext-redis-socketio
+    volumes:
+      - redis-socketio-data:/data
+    networks:
+      - erpnext-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 2s
+      retries: 5
+    restart: unless-stopped
+
+  # Configurator - Sets up common_site_config.json
+  configurator:
+    image: ${ERPNEXT_IMAGE:-frappe/erpnext:v15.75.1}
+    container_name: erpnext-configurator
+    command: configure.py
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+      redis-queue:
+        condition: service_healthy
+      redis-socketio:
+        condition: service_healthy
+    environment:
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      REDIS_SOCKETIO: redis-socketio:6379
+      SOCKETIO_PORT: 9000
+    volumes:
+      - sites-data:/home/frappe/frappe-bench/sites
+    networks:
+      - erpnext-network
+    restart: "no"
+
+  # Create Site - Installs ERPNext and selected apps
+  create-site:
+    image: ${ERPNEXT_IMAGE:-frappe/erpnext:v15.75.1}
+    container_name: erpnext-create-site
+    command: >
+      bash -c "
+      set -e
+      echo 'Waiting for database and redis services...'
+      sleep 30
+      
+      # Check if site already exists
+      if [ -d '/home/frappe/frappe-bench/sites/${SITE_NAME}' ]; then
+        echo 'Site ${SITE_NAME} already exists, skipping creation'
+        exit 0
+      fi
+      
+      echo 'Creating new site: ${SITE_NAME}'
+      bench new-site ${SITE_NAME} \
+        --no-mariadb-socket \
+        --admin-password='${ADMIN_PASSWORD}' \
+        --db-root-password='${DB_ROOT_PASSWORD}' \
+        --install-app erpnext \
+        --set-default
+      
+      echo 'Site created successfully!'
+      
+      # Install additional apps based on environment variables
+      ${INSTALL_HRMS:+echo 'Installing HRMS...' && bench --site ${SITE_NAME} install-app hrms}
+      ${INSTALL_CRM:+echo 'Installing CRM...' && bench --site ${SITE_NAME} install-app crm}
+      ${INSTALL_HELPDESK:+echo 'Installing Helpdesk...' && bench --site ${SITE_NAME} install-app helpdesk}
+      ${INSTALL_INSIGHTS:+echo 'Installing Insights...' && bench --site ${SITE_NAME} install-app insights}
+      ${INSTALL_GAMEPLAN:+echo 'Installing Gameplan...' && bench --site ${SITE_NAME} install-app gameplan}
+      ${INSTALL_LMS:+echo 'Installing LMS...' && bench --site ${SITE_NAME} install-app lms}
+      ${INSTALL_HEALTHCARE:+echo 'Installing Healthcare...' && bench --site ${SITE_NAME} install-app healthcare}
+      ${INSTALL_LENDING:+echo 'Installing Lending...' && bench --site ${SITE_NAME} install-app lending}
+      
+      echo 'All selected apps installed successfully!'
+      "
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    environment:
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      REDIS_SOCKETIO: redis-socketio:6379
+      SOCKETIO_PORT: 9000
+      DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      SITE_NAME: ${SITE_NAME}
+      # App installation flags (set in .env)
+      INSTALL_HRMS: ${INSTALL_HRMS}
+      INSTALL_CRM: ${INSTALL_CRM}
+      INSTALL_HELPDESK: ${INSTALL_HELPDESK}
+      INSTALL_INSIGHTS: ${INSTALL_INSIGHTS}
+      INSTALL_GAMEPLAN: ${INSTALL_GAMEPLAN}
+      INSTALL_LMS: ${INSTALL_LMS}
+      INSTALL_HEALTHCARE: ${INSTALL_HEALTHCARE}
+      INSTALL_LENDING: ${INSTALL_LENDING}
+    volumes:
+      - sites-data:/home/frappe/frappe-bench/sites
+    networks:
+      - erpnext-network
+    restart: "no"
+
+  # Backend - Gunicorn application server
+  backend:
+    image: ${ERPNEXT_IMAGE:-frappe/erpnext:v15.75.1}
+    container_name: erpnext-backend
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+    environment:
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      REDIS_SOCKETIO: redis-socketio:6379
+      SOCKETIO_PORT: 9000
+    volumes:
+      - sites-data:/home/frappe/frappe-bench/sites
+      - logs-data:/home/frappe/frappe-bench/logs
+    networks:
+      - erpnext-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/method/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  # WebSocket - Real-time features
+  websocket:
+    image: ${ERPNEXT_IMAGE:-frappe/erpnext:v15.75.1}
+    container_name: erpnext-websocket
+    command: node /home/frappe/frappe-bench/apps/frappe/socketio.js
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+    environment:
+      REDIS_SOCKETIO: redis-socketio:6379
+    volumes:
+      - sites-data:/home/frappe/frappe-bench/sites
+    networks:
+      - erpnext-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect(9000, 'localhost')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # Queue Workers
+  # Default Queue Worker
+  queue-default:
+    image: ${ERPNEXT_IMAGE:-frappe/erpnext:v15.75.1}
+    container_name: erpnext-queue-default
+    command: bench worker --queue default
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+    environment:
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      REDIS_SOCKETIO: redis-socketio:6379
+    volumes:
+      - sites-data:/home/frappe/frappe-bench/sites
+      - logs-data:/home/frappe/frappe-bench/logs
+    networks:
+      - erpnext-network
+    restart: unless-stopped
+
+  # Short Queue Worker
+  queue-short:
+    image: ${ERPNEXT_IMAGE:-frappe/erpnext:v15.75.1}
+    container_name: erpnext-queue-short
+    command: bench worker --queue short
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+    environment:
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      REDIS_SOCKETIO: redis-socketio:6379
+    volumes:
+      - sites-data:/home/frappe/frappe-bench/sites
+      - logs-data:/home/frappe/frappe-bench/logs
+    networks:
+      - erpnext-network
+    restart: unless-stopped
+
+  # Long Queue Worker
+  queue-long:
+    image: ${ERPNEXT_IMAGE:-frappe/erpnext:v15.75.1}
+    container_name: erpnext-queue-long
+    command: bench worker --queue long
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+    environment:
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      REDIS_SOCKETIO: redis-socketio:6379
+    volumes:
+      - sites-data:/home/frappe/frappe-bench/sites
+      - logs-data:/home/frappe/frappe-bench/logs
+    networks:
+      - erpnext-network
+    restart: unless-stopped
+
+  # Scheduler - Background jobs
+  scheduler:
+    image: ${ERPNEXT_IMAGE:-frappe/erpnext:v15.75.1}
+    container_name: erpnext-scheduler
+    command: bench schedule
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+    environment:
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      REDIS_SOCKETIO: redis-socketio:6379
+    volumes:
+      - sites-data:/home/frappe/frappe-bench/sites
+      - logs-data:/home/frappe/frappe-bench/logs
+    networks:
+      - erpnext-network
+    restart: unless-stopped
+
+  # Frontend - Nginx reverse proxy with HTTPS
+  frontend:
+    image: ${ERPNEXT_IMAGE:-frappe/erpnext:v15.75.1}
+    container_name: erpnext-frontend
+    command: >
+      bash -c "
+      set -e
+      
+      # Setup SSL certificate
+      mkdir -p /etc/nginx/ssl
+      if [ ! -f /etc/nginx/ssl/cert.pem ]; then
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+          -keyout /etc/nginx/ssl/key.pem \
+          -out /etc/nginx/ssl/cert.pem \
+          -subj '/C=US/ST=State/L=City/O=Organization/CN=${DOMAIN_NAME:-localhost}'
+      fi
+      
+      # Create nginx configuration
+      cat > /etc/nginx/conf.d/erpnext.conf <<'NGINX'
+      upstream backend {
+          server backend:8000;
+      }
+      
+      upstream socketio {
+          server websocket:9000;
+      }
+      
+      # HTTP -> HTTPS redirect
+      server {
+          listen 80;
+          server_name _;
+          return 301 https://\$$host\$$request_uri;
+      }
+      
+      # HTTPS Server
+      server {
+          listen 443 ssl http2;
+          server_name _;
+      
+          ssl_certificate     /etc/nginx/ssl/cert.pem;
+          ssl_certificate_key /etc/nginx/ssl/key.pem;
+          ssl_protocols       TLSv1.2 TLSv1.3;
+          ssl_ciphers         HIGH:!aNULL:!MD5;
+      
+          client_max_body_size 50m;
+          root /home/frappe/frappe-bench/sites;
+      
+          location /assets {
+              try_files \$$uri =404;
+          }
+      
+          location ~ ^/protected/(.*) {
+              internal;
+              try_files /${SITE_NAME}/\$$1 =404;
+          }
+      
+          location /socket.io {
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade \$$http_upgrade;
+              proxy_set_header Connection \"upgrade\";
+              proxy_set_header X-Frappe-Site-Name ${SITE_NAME};
+              proxy_set_header Origin \$$scheme://\$$http_host;
+              proxy_set_header Host \$$host;
+              proxy_pass http://socketio;
+          }
+      
+          location / {
+              rewrite ^(.+)/\$$ \$$1 permanent;
+              rewrite ^(.+)/index\\.html\$$ \$$1 permanent;
+              rewrite ^(.+)\\.html\$$ \$$1 permanent;
+      
+              location ~ ^/files/.*.(htm|html|svg|xml) {
+                  add_header Content-disposition \"attachment\";
+                  try_files /${SITE_NAME}/\$$uri @backend;
+              }
+      
+              try_files /${SITE_NAME}/\$$uri @backend;
+          }
+      
+          location @backend {
+              proxy_set_header X-Forwarded-For \$$remote_addr;
+              proxy_set_header X-Forwarded-Proto \$$scheme;
+              proxy_set_header X-Frappe-Site-Name ${SITE_NAME};
+              proxy_set_header Host \$$host;
+              proxy_set_header X-Use-X-Accel-Redirect True;
+              proxy_read_timeout 120;
+              proxy_redirect off;
+              proxy_pass http://backend;
+          }
+      }
+      NGINX
+      
+      # Start nginx
+      nginx -g 'daemon off;'
+      "
+    depends_on:
+      backend:
+        condition: service_healthy
+      websocket:
+        condition: service_healthy
+    environment:
+      SITE_NAME: ${SITE_NAME}
+      DOMAIN_NAME: ${DOMAIN_NAME:-localhost}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - sites-data:/home/frappe/frappe-bench/sites
+      - ssl-certs:/etc/nginx/ssl
+    networks:
+      - erpnext-network
+    restart: unless-stopped
+
+networks:
+  erpnext-network:
+    driver: bridge
+
+volumes:
+  mariadb-data:
+  redis-cache-data:
+  redis-queue-data:
+  redis-socketio-data:
+  sites-data:
+  logs-data:
+  ssl-certs:
